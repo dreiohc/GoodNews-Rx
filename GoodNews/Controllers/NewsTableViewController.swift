@@ -15,13 +15,7 @@ class NewsTableViewController: UITableViewController {
   
   // MARK: - Properties
   
-  private var articles = [Article]() {
-    didSet {
-      DispatchQueue.main.async {
-        self.tableView.reloadData()
-      }
-    }
-  }
+  private var articleListVM: ArticleListViewModel!
   
   let disposeBag = DisposeBag()
   
@@ -38,19 +32,17 @@ class NewsTableViewController: UITableViewController {
   
   private func populateNews() {
     
-    Observable.just(NEWS_URL)
-      .flatMap { url -> Observable<Data> in // sometimes data type result are not identified by Swift in Rx.
-        let request = URLRequest(url: NEWS_URL)
-        return URLSession.shared.rx.data(request: request) // returns a url request response data.
-      }.map { data -> [Article]? in
-        return try? JSONDecoder().decode(ArticleList.self, from: data).articles // decode the request data.
-      }.subscribe(onNext: { [weak self] articles in
-        if let articles = articles {
-          self?.articles = articles
+    URLRequest.load(resource: ArticleList.all)
+      .subscribe(onNext: { [weak self] articleResponse in
+        if let articles = articleResponse?.articles {
+          self?.articleListVM = ArticleListViewModel(articles)
+          DispatchQueue.main.async {
+            self?.tableView.reloadData()
+          }
         }
       }).disposed(by: disposeBag)
-    
   }
+
   
   // MARK: - Actions
   
@@ -66,8 +58,21 @@ extension NewsTableViewController {
   
   override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
     guard let cell = tableView.dequeueReusableCell(withIdentifier: reuseIdentifier, for: indexPath) as? ArticleTableViewCell else { fatalError() }
-    cell.titleLabel.text = articles[indexPath.row].title
-    cell.descriptionLabel.text = articles[indexPath.row].description
+    
+    let article = self.articleListVM.articleAt(indexPath.row)
+      
+    article
+      .title
+      .asDriver(onErrorJustReturn: "")
+      .drive(cell.titleLabel.rx.text)
+      .disposed(by: disposeBag)
+    
+    article
+      .description
+      .asDriver(onErrorJustReturn: "")
+      .drive(cell.descriptionLabel.rx.text)
+      .disposed(by: disposeBag)
+    
     return cell
   }
   
@@ -76,7 +81,7 @@ extension NewsTableViewController {
   }
   
   override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-    return articles.count
+    return articleListVM == nil ? 0: self.articleListVM.articlesVM.count
   }
   
 }
